@@ -15,16 +15,17 @@ from config import RunConfig, Range
 from utils import latent_utils
 from utils.latent_utils import load_latents_or_invert_images
 
+from pathlib import Path
+import os
+import os.path as osp
+from glob import glob
+from tqdm import tqdm
 
 @pyrallis.wrap()
 def main(cfg: RunConfig):
     run(cfg)
 
-
-def run(cfg: RunConfig) -> List[Image.Image]:
-    pyrallis.dump(cfg, open(cfg.output_path / 'config.yaml', 'w'))
-    set_seed(cfg.seed)
-    model = AppearanceTransferModel(cfg)
+def run_single_image(model, cfg: RunConfig):
     latents_app, latents_struct, noise_app, noise_struct = load_latents_or_invert_images(model=model, cfg=cfg)
     model.set_latents(latents_app, latents_struct)
     model.set_noise(noise_app, noise_struct)
@@ -32,6 +33,36 @@ def run(cfg: RunConfig) -> List[Image.Image]:
     images = run_appearance_transfer(model=model, cfg=cfg)
     print("Done.")
     return images
+
+
+
+def run(cfg: RunConfig) -> List[Image.Image]:
+    pyrallis.dump(cfg, open(cfg.output_path / 'config.yaml', 'w'))
+    set_seed(cfg.seed)
+    model = AppearanceTransferModel(cfg)
+    if osp.isdir(cfg.app_image_path):
+        output_path = cfg.output_path
+        app_images = sorted(glob(osp.join(cfg.app_image_path, "*.png")))
+        struct_images = sorted(glob(osp.join(cfg.struct_image_path, "*.png")))
+
+        assert len(app_images) == len(struct_images)
+        num_images = len(app_images)
+
+        for app_img, struct_img in tqdm(zip(app_images, struct_images), total=num_images):
+            file_name = osp.splitext(osp.split(app_img)[-1])[0]
+            cfg.app_image_path = Path(app_img)
+            cfg.struct_image_path = Path(struct_img)
+            cfg.output_path = output_path / f"{file_name}"
+            if not osp.exists(cfg.output_path) : os.mkdir(cfg.output_path)
+            run_single_image(model, cfg)
+    else:
+        run_single_image(model, cfg)
+
+    return None
+
+    
+
+
 
 
 def run_appearance_transfer(model: AppearanceTransferModel, cfg: RunConfig) -> List[Image.Image]:
